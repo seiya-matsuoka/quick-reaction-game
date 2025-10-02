@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useReactionTap } from '@/hooks/useReactionTap';
 import type { SessionSummary } from '@/types/reaction';
+import CameraPreview from '@/components/CameraPreview';
 
 type Page = 'home' | 'measure' | 'result';
+type InputMode = 'tap' | 'camera';
 
 export default function App() {
   const [page, setPage] = useState<Page>('home');
   const [lastSummary, setLastSummary] = useState<SessionSummary | null>(null);
   const [totalTrials, setTotalTrials] = useState<number>(1);
+  const [inputMode, setInputMode] = useState<InputMode>('tap');
 
   return (
     <div className="min-h-dvh bg-slate-900 text-slate-100">
@@ -15,6 +18,8 @@ export default function App() {
         <Home
           totalTrials={totalTrials}
           onChangeTrials={setTotalTrials}
+          inputMode={inputMode}
+          onChangeInputMode={setInputMode}
           onStart={() => {
             setLastSummary(null);
             setPage('measure');
@@ -25,6 +30,7 @@ export default function App() {
       {page === 'measure' && (
         <MeasureTap
           totalTrials={totalTrials}
+          inputMode={inputMode}
           onAbort={() => setPage('home')}
           onFinish={(sum) => {
             setLastSummary(sum);
@@ -48,10 +54,14 @@ export default function App() {
 function Home({
   totalTrials,
   onChangeTrials,
+  inputMode,
+  onChangeInputMode,
   onStart,
 }: {
   totalTrials: number;
   onChangeTrials: (n: number) => void;
+  inputMode: 'tap' | 'camera';
+  onChangeInputMode: (m: 'tap' | 'camera') => void;
   onStart: () => void;
 }) {
   return (
@@ -59,6 +69,20 @@ function Home({
       <h1 className="mb-2 text-2xl font-bold">Quick Reaction Game</h1>
       <p className="mb-4 text-slate-300">合図に反応して ms を測る。</p>
 
+      {/* 入力モード */}
+      <div className="mb-4 rounded-2xl border border-slate-700 p-4">
+        <label className="mb-2 block text-sm text-slate-300">入力モード</label>
+        <select
+          className="w-full rounded-xl bg-slate-800 p-2"
+          value={inputMode}
+          onChange={(e) => onChangeInputMode(e.target.value as 'tap' | 'camera')}
+        >
+          <option value="tap">タップ（画面/クリック/スペース）</option>
+          <option value="camera">カメラ（プレビューのみ）</option>
+        </select>
+      </div>
+
+      {/* プレイ回数 */}
       <div className="mb-5 rounded-2xl border border-slate-700 p-4">
         <label className="mb-2 block text-sm text-slate-300">プレイ回数</label>
         <select
@@ -71,15 +95,6 @@ function Home({
           <option value={5}>5</option>
           <option value={10}>10</option>
         </select>
-        <p className="mt-2 text-xs text-slate-400">回数を選択してください。</p>
-      </div>
-
-      <div className="mb-4 rounded-2xl border border-slate-700 p-4 text-sm text-slate-300">
-        入力方法：
-        <ul className="mt-1 list-inside list-disc">
-          <li>モバイル：画面タップ</li>
-          <li>PC：スペースキー / クリック</li>
-        </ul>
       </div>
 
       <button
@@ -95,10 +110,12 @@ function Home({
 /* ---------- MeasureTap ---------- */
 function MeasureTap({
   totalTrials,
+  inputMode,
   onAbort,
   onFinish,
 }: {
   totalTrials: number;
+  inputMode: 'tap' | 'camera';
   onAbort: () => void;
   onFinish: (summary: SessionSummary) => void;
 }) {
@@ -160,6 +177,13 @@ function MeasureTap({
           中断
         </button>
       </header>
+
+      {/* カメラモードならプレビュー表示 */}
+      {inputMode === 'camera' && (
+        <div className="mb-4">
+          <CameraPreview />
+        </div>
+      )}
 
       <div className="mb-3 text-sm text-slate-300">
         {single ? (

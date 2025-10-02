@@ -6,6 +6,7 @@ type Options = {
   minDelayMs?: number; // 合図までの最小遅延
   maxDelayMs?: number; // 合図までの最大遅延
   cooldownMs?: number; // 合図直後の誤爆防止
+  tooSoonHoldMs?: number; // フライング後の表示時間
 };
 
 export function useReactionTap(opts: Options = {}) {
@@ -13,28 +14,37 @@ export function useReactionTap(opts: Options = {}) {
   const minDelayMs = opts.minDelayMs ?? 1500;
   const maxDelayMs = opts.maxDelayMs ?? 4000;
   const cooldownMs = opts.cooldownMs ?? 120;
+  const tooSoonHoldMs = opts.tooSoonHoldMs ?? 450;
 
   const [stage, setStage] = useState<Stage>('idle');
   const [trialIndex, setTrialIndex] = useState(0);
   const [trials, setTrials] = useState<Trial[]>([]);
   const cueAtRef = useRef<number | null>(null);
-  const timerRef = useRef<number | null>(null);
+  const cueTimerRef = useRef<number | null>(null);
+  const tooSoonTimerRef = useRef<number | null>(null);
   const lockedUntilRef = useRef<number>(0);
 
   const remaining = totalTrials - trials.length;
 
-  const clearTimer = () => {
-    if (timerRef.current != null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
+  const clearCueTimer = () => {
+    if (cueTimerRef.current != null) {
+      window.clearTimeout(cueTimerRef.current);
+      cueTimerRef.current = null;
+    }
+  };
+
+  const clearTooSoonTimer = () => {
+    if (tooSoonTimerRef.current != null) {
+      window.clearTimeout(tooSoonTimerRef.current);
+      tooSoonTimerRef.current = null;
     }
   };
 
   const scheduleCue = useCallback(() => {
-    clearTimer();
+    clearCueTimer();
     setStage('waiting');
     const delay = Math.floor(Math.random() * (maxDelayMs - minDelayMs + 1)) + minDelayMs;
-    timerRef.current = window.setTimeout(() => {
+    cueTimerRef.current = window.setTimeout(() => {
       cueAtRef.current = performance.now();
       lockedUntilRef.current = cueAtRef.current + cooldownMs;
       setStage('go');
@@ -46,14 +56,21 @@ export function useReactionTap(opts: Options = {}) {
     setTrials([]);
     setTrialIndex(0);
     cueAtRef.current = null;
+    clearTooSoonTimer();
+    clearCueTimer();
     scheduleCue();
   }, [scheduleCue]);
 
-  const restartSameTrial = useCallback(() => {
+  const showTooSoonThenRetry = useCallback(() => {
+    // 「早すぎ！」を一定時間見せてから同じ試行を仕切り直す
+    clearCueTimer();
+    clearTooSoonTimer();
     cueAtRef.current = null;
-    setStage('waiting');
-    window.setTimeout(scheduleCue, 450);
-  }, [scheduleCue]);
+    setStage('tooSoon');
+    tooSoonTimerRef.current = window.setTimeout(() => {
+      scheduleCue();
+    }, tooSoonHoldMs);
+  }, [scheduleCue, tooSoonHoldMs]);
 
   const finalizeTrial = useCallback(
     (reactAt: number) => {
@@ -81,11 +98,11 @@ export function useReactionTap(opts: Options = {}) {
   const react = useCallback(() => {
     const now = performance.now();
 
-    // 合図前
+    if (stage === 'tooSoon' || stage === 'idle' || stage === 'done') return;
+
+    // 合図前に押した → tooSoon 表示 → 仕切り直し
     if (stage === 'waiting') {
-      setStage('tooSoon');
-      clearTimer();
-      restartSameTrial();
+      showTooSoonThenRetry();
       return;
     }
 
@@ -94,11 +111,12 @@ export function useReactionTap(opts: Options = {}) {
       return;
     }
 
+    // 合図後に押した → 反応確定
     if (stage === 'go' && cueAtRef.current != null) {
       finalizeTrial(now);
       return;
     }
-  }, [stage, finalizeTrial, restartSameTrial]);
+  }, [stage, finalizeTrial, showTooSoonThenRetry]);
 
   const stats = useMemo(() => {
     const vals = trials.map((t) => t.ms).filter((v): v is number => v != null);
@@ -110,17 +128,21 @@ export function useReactionTap(opts: Options = {}) {
 
   const summary: SessionSummary | null = stage === 'done' ? { trials, stats } : null;
 
-  useEffect(() => () => clearTimer(), []);
+  useEffect(() => {
+    // アンマウント時にタイマを確実に破棄
+    return () => {
+      clearCueTimer();
+      clearTooSoonTimer();
+    };
+  }, []);
 
   return {
-    // state
     stage,
     trialIndex,
     remaining,
     trials,
     stats,
     summary,
-    // actions
     start,
     react,
   };

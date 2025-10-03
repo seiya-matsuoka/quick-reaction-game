@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useReactionTap } from '@/hooks/useReactionTap';
 import type { SessionSummary } from '@/types/reaction';
 import CameraPreview from '@/components/CameraPreview';
 
 type Page = 'home' | 'measure' | 'result';
 type InputMode = 'tap' | 'camera';
+
+const GO_AUTO_TIMEOUT_MS = 10000; // 合図後の最大検知待ち時間
 
 export default function App() {
   const [page, setPage] = useState<Page>('home');
@@ -13,7 +15,7 @@ export default function App() {
   const [inputMode, setInputMode] = useState<InputMode>('tap');
 
   return (
-    <div className="min-h-dvh bg-slate-900 text-slate-100">
+    <div className="min-h-dvh overflow-hidden bg-slate-900 text-slate-100">
       {page === 'home' && (
         <Home
           totalTrials={totalTrials}
@@ -123,7 +125,7 @@ function MeasureTap({
     totalTrials,
     minDelayMs: 1500,
     maxDelayMs: 4000,
-    cooldownMs: 120,
+    cooldownMs: 100,
   });
 
   // 初回マウントで自動スタート
@@ -148,6 +150,30 @@ function MeasureTap({
   useEffect(() => {
     if (summary) onFinish(summary);
   }, [summary, onFinish]);
+
+  // 合図後の自動タイムアウト
+  const goTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    // いったん前のタイマーを止める
+    if (goTimerRef.current) {
+      clearTimeout(goTimerRef.current);
+      goTimerRef.current = null;
+    }
+    // 合図後だけ最大待ち時間タイマーをセット
+    if (stage === 'go') {
+      goTimerRef.current = window.setTimeout(() => {
+        // まだ反応していなければ「最大時間の反応」として確定
+        react();
+      }, GO_AUTO_TIMEOUT_MS) as unknown as number;
+    }
+    // クリーンアップ
+    return () => {
+      if (goTimerRef.current) {
+        clearTimeout(goTimerRef.current);
+        goTimerRef.current = null;
+      }
+    };
+  }, [stage, react]);
 
   const zone = useMemo(() => {
     switch (stage) {
@@ -178,10 +204,16 @@ function MeasureTap({
         </button>
       </header>
 
-      {/* カメラモードならプレビュー表示 */}
+      {/* カメラモードならプレビュー + 検出（合図後のみ反応） */}
       {inputMode === 'camera' && (
         <div className="mb-4">
-          <CameraPreview />
+          <CameraPreview
+            mode="mouth"
+            armed={stage === 'go'} // 合図後だけ true
+            onGestureStop={() => {
+              react();
+            }}
+          />
         </div>
       )}
 

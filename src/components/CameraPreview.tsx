@@ -7,7 +7,10 @@ type Props = {
   mode?: 'mouth' | 'blink' | 'nod';
   onGestureStop?: () => void;
   thresholdDefault?: number;
-  armed?: boolean;
+  armed?: boolean; // 合図後 true
+  onStatusChange?: (s: { ready: boolean; calibrating: boolean; playing: boolean }) => void;
+  calibrateNonce?: number; // 1,2,3... に増やすとキャリブ開始。0/undefined は無視
+  onCalibrated?: () => void;
 };
 
 export default function CameraPreview({
@@ -16,25 +19,49 @@ export default function CameraPreview({
   onGestureStop,
   thresholdDefault = 0.5,
   armed = false,
+  onStatusChange,
+  calibrateNonce,
+  onCalibrated,
 }: Props) {
   const [mirrored, setMirrored] = useState(true);
   const [mouth, setMouth] = useState<number | null>(null);
   const [threshold, setThreshold] = useState<number>(thresholdDefault);
   const [calibrating, setCalibrating] = useState(false);
 
-  // キャリブ用のバッファ
   const cal = useRef<{ active: boolean; values: number[]; timer: number | null }>({
     active: false,
     values: [],
     timer: null,
   });
+  const lastCalNonceRef = useRef<number | undefined>(undefined);
 
-  const CAM_CALIBRATION_MS = 1200;
-  const cam = useUserMedia({ width: 320, height: 240, facingMode: 'user' });
+  const onCalibratedRef = useRef(onCalibrated);
+  useEffect(() => {
+    onCalibratedRef.current = onCalibrated;
+  }, [onCalibrated]);
 
-  // 毎フレーム setState しない：最新値は ref に保持
+  // カメラは常時オン（共有ストリームを使い回し）
+  const cam = useUserMedia({
+    width: 320,
+    height: 240,
+    facingMode: 'user',
+    persistAcrossUnmounts: true,
+  });
+
+  const playing = cam.playing;
+  const startCam = cam.start;
+
+  useEffect(() => {
+    if (!playing) void startCam();
+  }, [playing, startCam]);
+
+  const playingRef = useRef(false);
+  useEffect(() => {
+    playingRef.current = cam.playing;
+  }, [cam.playing]);
+
+  // 推論（キャリブ中 or 合図後のみ）
   const latestMouthRef = useRef<number | null>(null);
-
   const detector = useGestureDetector(cam.videoRef, {
     mode,
     threshold,
@@ -53,10 +80,18 @@ export default function CameraPreview({
       }
     },
   });
-
   const { ready, running, start, stop } = detector;
 
-  // 再生状態に応じて検出をON/OFF
+  const readyRef = useRef(false);
+  useEffect(() => {
+    readyRef.current = ready;
+  }, [ready]);
+
+  useEffect(() => {
+    onStatusChange?.({ ready, calibrating, playing: cam.playing });
+  }, [ready, calibrating, cam.playing, onStatusChange]);
+
+  // 検出は「キャリブ中 or 合図後」だけ回す
   useEffect(() => {
     const shouldRun = cam.playing && ready && (calibrating || armed);
     if (shouldRun && !running) start();
@@ -82,18 +117,34 @@ export default function CameraPreview({
   }, [cam.playing]);
 
   useEffect(() => {
-    if (!cam.playing || !ready) return;
-    if (cal.current.active) return;
+    const token = calibrateNonce ?? 0;
+    if (token <= 0) return;
 
-    setCalibrating(true);
-    cal.current.active = true;
-    cal.current.values = [];
+    // カメラ/モデル準備が未完ならスキップ（App 側が ready 到達で再トリガ）
+    if (!playingRef.current || !readyRef.current) return;
 
+    if (lastCalNonceRef.current === token) return;
+    lastCalNonceRef.current = token;
+
+    // 進行中なら二重起動しない
     const calRef = cal.current;
+    if (calRef.active) return;
 
-    calRef.timer = window.setTimeout(() => {
+    // 前回の残りをクリア
+    if (calRef.timer) {
+      clearTimeout(calRef.timer);
+      calRef.timer = null;
+    }
+
+    // 開始
+    calRef.active = true;
+    calRef.values = [];
+    setCalibrating(true);
+
+    const CAL_MS = 1200;
+    const done = () => {
       const vals = calRef.values;
-      const base = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0.1; // 閉口平均の想定
+      const base = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0.1;
       const newTh = Math.max(0.45, base + 0.25);
       setThreshold(Number(newTh.toFixed(2)));
 
@@ -101,8 +152,12 @@ export default function CameraPreview({
       calRef.values = [];
       calRef.timer = null;
       setCalibrating(false);
-    }, CAM_CALIBRATION_MS) as unknown as number;
+      onCalibratedRef.current?.();
+    };
 
+    calRef.timer = window.setTimeout(done, CAL_MS) as unknown as number;
+
+    // 中断/アンマウント時は必ず終了処理
     return () => {
       if (calRef.timer) {
         clearTimeout(calRef.timer);
@@ -110,9 +165,11 @@ export default function CameraPreview({
       }
       calRef.active = false;
       calRef.values = [];
+      setCalibrating(false);
     };
-  }, [cam.playing, ready]);
+  }, [calibrateNonce]);
 
+  // カメラ停止でキャリブ表示もオフ
   useEffect(() => {
     if (!cam.playing) setCalibrating(false);
   }, [cam.playing]);
@@ -130,23 +187,6 @@ export default function CameraPreview({
             <input type="checkbox" checked={mirrored} onChange={() => setMirrored((v) => !v)} />
             ミラー表示
           </label>
-
-          {cam.playing ? (
-            <button
-              className="rounded-md bg-slate-700 px-2 py-1 text-xs hover:bg-slate-600"
-              onClick={cam.stop}
-            >
-              停止
-            </button>
-          ) : (
-            <button
-              className="rounded-md bg-cyan-500 px-2 py-1 text-xs hover:bg-cyan-400"
-              onClick={cam.start}
-              title="開始後しばらくは口を閉じたまま静止してください"
-            >
-              カメラ開始
-            </button>
-          )}
         </div>
       </div>
 
@@ -160,7 +200,6 @@ export default function CameraPreview({
             mirrored ? 'scale-x-[-1]' : '',
           ].join(' ')}
         />
-        {/* HUD */}
         <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-slate-900/70 px-2 py-1 text-xs tabular-nums text-slate-200">
           mouth: {mouth === null ? '—' : mouth.toFixed(2)} / th: {threshold.toFixed(2)}
         </div>

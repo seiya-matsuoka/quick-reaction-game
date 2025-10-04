@@ -6,8 +6,6 @@ import CameraPreview from '@/components/CameraPreview';
 type Page = 'home' | 'measure' | 'result';
 type InputMode = 'tap' | 'camera';
 
-const GO_AUTO_TIMEOUT_MS = 10000; // 合図後の最大検知待ち時間
-
 export default function App() {
   const [page, setPage] = useState<Page>('home');
   const [lastSummary, setLastSummary] = useState<SessionSummary | null>(null);
@@ -128,45 +126,93 @@ function MeasureTap({
     cooldownMs: 100,
   });
 
-  // 初回マウントで自動スタート
+  // タップモードは自動開始
   useEffect(() => {
-    start();
-  }, [start]);
+    if (inputMode === 'tap') start();
+  }, [inputMode, start]);
 
-  // スペース or Enter で反応
+  // --- カメラ用の状態 ---
+  const [hasStarted, setHasStarted] = useState(false);
+  const [camReady, setCamReady] = useState(false);
+  const [camCalibrating, setCamCalibrating] = useState(false);
+  const [camPlaying, setCamPlaying] = useState(false);
+
+  // 同一セッション（リロードまで）で一度だけキャリブ
+  const initialCalibrated = (globalThis as any).CAMERA_CALIBRATED_SESSION ?? false;
+  const [cameraCalibrated, setCameraCalibrated] = useState<boolean>(initialCalibrated);
+
+  // 「カメラの設定」トリガ（CameraPreview へ渡す）
+  const [calibrateNonce, setCalibrateNonce] = useState(0);
+  const requestCalibrate = () => setCalibrateNonce((n) => n + 1);
+
+  // 受付済み（ready待ち含む）を可視化するフラグ
+  const [pendingCalibrate, setPendingCalibrate] = useState(false);
+
+  // キー操作（準備前でもキャリブは「予約」だけ通す → 実行は CameraPreview 側で ready 待ち）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'Space' || e.code === 'Enter') {
         e.preventDefault();
-        react();
+        if (inputMode === 'camera' && !hasStarted) {
+          if (!cameraCalibrated) {
+            if (e.repeat) return;
+            // camPlaying/camReady を条件にしない：先に予約し、実行は下の useEffect で
+            if (!camCalibrating) {
+              requestCalibrate();
+              setPendingCalibrate(true);
+            }
+          } else {
+            // 計測開始は ready を見て開始
+            if (camReady && !camCalibrating) {
+              start();
+              setHasStarted(true);
+            }
+          }
+        } else {
+          react();
+        }
       }
       if (e.code === 'Escape') onAbort();
     };
     window.addEventListener('keydown', onKey, { passive: false });
     return () => window.removeEventListener('keydown', onKey);
-  }, [react, onAbort]);
+  }, [inputMode, hasStarted, cameraCalibrated, camReady, camCalibrating, start, react, onAbort]);
 
-  // 完了時に親へ通知
+  // ready 到達時に、予約済みキャリブを自動再トリガ
   useEffect(() => {
-    if (summary) onFinish(summary);
+    if (
+      inputMode === 'camera' &&
+      pendingCalibrate &&
+      !cameraCalibrated &&
+      camReady && // ここだけを見る（playing は CameraPreview 側で担保済み）
+      !camCalibrating
+    ) {
+      requestCalibrate(); // 実行トリガをもう一度確実に送る
+      setPendingCalibrate(false);
+    }
+  }, [inputMode, pendingCalibrate, cameraCalibrated, camReady, camCalibrating]);
+
+  // 完了時：キャリブ状態は維持（同セッション内は再キャリブ不要）
+  useEffect(() => {
+    if (summary) {
+      setHasStarted(false);
+      onFinish(summary);
+    }
   }, [summary, onFinish]);
 
-  // 合図後の自動タイムアウト
+  // 合図後の自動タイムアウト（高負荷の上限を制御）
+  const GO_AUTO_TIMEOUT_MS = 10000;
   const goTimerRef = useRef<number | null>(null);
   useEffect(() => {
-    // いったん前のタイマーを止める
     if (goTimerRef.current) {
       clearTimeout(goTimerRef.current);
       goTimerRef.current = null;
     }
-    // 合図後だけ最大待ち時間タイマーをセット
     if (stage === 'go') {
       goTimerRef.current = window.setTimeout(() => {
-        // まだ反応していなければ「最大時間の反応」として確定
         react();
       }, GO_AUTO_TIMEOUT_MS) as unknown as number;
     }
-    // クリーンアップ
     return () => {
       if (goTimerRef.current) {
         clearTimeout(goTimerRef.current);
@@ -175,7 +221,22 @@ function MeasureTap({
     };
   }, [stage, react]);
 
+  // ゾーン表示：初回は「カメラの設定」→ 予約中/キャリブ中 →（モデル準備中）→「タップで開始」
   const zone = useMemo(() => {
+    if (inputMode === 'camera' && !hasStarted) {
+      if (!camPlaying) return { color: 'bg-slate-700', label: 'カメラ準備中…' };
+      if (!cameraCalibrated) {
+        if (camCalibrating)
+          return { color: 'bg-slate-700', label: 'キャリブ中…（口を閉じて静止）' };
+        if (pendingCalibrate && !camReady)
+          return { color: 'bg-slate-700', label: 'モデル準備中…（キャリブ待機）' };
+        if (pendingCalibrate && camReady)
+          return { color: 'bg-slate-700', label: 'キャリブ開始中…' };
+        return { color: 'bg-emerald-600', label: 'タップでカメラの設定' };
+      }
+      if (!camReady) return { color: 'bg-slate-700', label: 'モデル準備中…' };
+      return { color: 'bg-emerald-600', label: 'タップで開始' };
+    }
     switch (stage) {
       case 'waiting':
         return { color: 'bg-amber-500', label: '合図待ち…' };
@@ -186,7 +247,16 @@ function MeasureTap({
       default:
         return { color: 'bg-slate-700', label: '準備中…' };
     }
-  }, [stage]);
+  }, [
+    inputMode,
+    hasStarted,
+    cameraCalibrated,
+    camCalibrating,
+    camPlaying,
+    camReady,
+    pendingCalibrate,
+    stage,
+  ]);
 
   const single = totalTrials === 1;
 
@@ -198,18 +268,31 @@ function MeasureTap({
         </h2>
         <button
           className="rounded-xl bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
-          onClick={onAbort}
+          onClick={() => {
+            setHasStarted(false);
+            onAbort();
+          }}
         >
           中断
         </button>
       </header>
 
-      {/* カメラモードならプレビュー + 検出（合図後のみ反応） */}
       {inputMode === 'camera' && (
         <div className="mb-4">
           <CameraPreview
             mode="mouth"
-            armed={stage === 'go'} // 合図後だけ true
+            armed={stage === 'go'}
+            calibrateNonce={calibrateNonce}
+            onCalibrated={() => {
+              setCameraCalibrated(true);
+              (globalThis as any).CAMERA_CALIBRATED_SESSION = true; // セッション内保持（リロードでのみ初期化）
+              setPendingCalibrate(false);
+            }}
+            onStatusChange={({ ready, calibrating, playing }) => {
+              setCamReady(ready);
+              setCamCalibrating(calibrating);
+              setCamPlaying(playing);
+            }}
             onGestureStop={() => {
               react();
             }}
@@ -230,10 +313,24 @@ function MeasureTap({
         )}
       </div>
 
-      {/* 合図ゾーン（クリック/タップで反応） */}
+      {/* onClick に変更（pointerの差異で取りこぼしが出る環境向け） */}
       <button
         type="button"
-        onPointerDown={react}
+        onClick={() => {
+          if (inputMode === 'camera' && !hasStarted) {
+            if (!cameraCalibrated) {
+              if (!camCalibrating) {
+                requestCalibrate();
+                setPendingCalibrate(true);
+              }
+            } else if (camReady && !camCalibrating) {
+              start();
+              setHasStarted(true);
+            }
+          } else {
+            react();
+          }
+        }}
         className={[
           'group relative grid h-56 w-full place-items-center rounded-2xl transition-colors',
           zone.color,
@@ -246,7 +343,7 @@ function MeasureTap({
       </button>
 
       <p className="mt-3 text-xs text-slate-400">
-        画面タップ / スペース / Enter で反応。
+        画面タップ / 画面クリック / スペース / Enter で反応。
         {single
           ? ' 合図前に押すと「早すぎ！」になり、仕切り直します。'
           : ' 合図前に押すと「早すぎ！」になり、同じ試行を仕切り直します。'}

@@ -163,7 +163,11 @@ export default function CameraPreview({
     const done = () => {
       const vals = calRef.values;
       const base = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0.1;
-      const newTh = Math.max(mode === 'blink' ? 0.4 : 0.45, base + 0.25);
+
+      // blink と mouth で下限とオフセットを分ける（mouth をやや甘く）
+      const FLOOR = mode === 'blink' ? 0.4 : 0.4;
+      const OFFSET = mode === 'blink' ? 0.25 : 0.2;
+      const newTh = Math.max(FLOOR, base + OFFSET);
       setThreshold(Number(newTh.toFixed(2)));
 
       // モード別に保存（セッション内のみ有効）

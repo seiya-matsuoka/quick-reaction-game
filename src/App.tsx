@@ -76,7 +76,7 @@ function Home({
   return (
     <div className="mx-auto max-w-sm p-6">
       <h1 className="mb-2 text-2xl font-bold">Quick Reaction Game</h1>
-      <p className="mb-4 text-slate-300">合図に反応して ms を測る。</p>
+      <p className="mb-4 text-slate-300">合図に反応したタイムを計測</p>
 
       {/* 入力モード */}
       <div className="mb-4 rounded-2xl border border-slate-700 p-4">

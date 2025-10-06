@@ -11,8 +11,8 @@ export default function App() {
   const [page, setPage] = useState<Page>('home');
   const [lastSummary, setLastSummary] = useState<SessionSummary | null>(null);
   const [totalTrials, setTotalTrials] = useState<number>(1);
-  const [inputMode, setInputMode] = useState<InputMode>('tap');
-  const [cameraKind, setCameraKind] = useState<CameraKind>('mouth');
+  const [inputMode, setInputMode] = useState<InputMode>('camera');
+  const [cameraKind, setCameraKind] = useState<CameraKind>('blink');
 
   return (
     <div className="min-h-dvh overflow-hidden bg-slate-900 text-slate-100">
@@ -86,8 +86,8 @@ function Home({
           value={inputMode}
           onChange={(e) => onChangeInputMode(e.target.value as 'tap' | 'camera')}
         >
-          <option value="tap">タップ（画面/クリック/スペース）</option>
-          <option value="camera">カメラ（プレビューのみ）</option>
+          <option value="camera">カメラ（まばたき / 口）</option>
+          <option value="tap">タップ（クリック / スペース）</option>
         </select>
       </div>
 
@@ -100,8 +100,8 @@ function Home({
             value={cameraKind}
             onChange={(e) => onChangeCameraKind(e.target.value as CameraKind)}
           >
-            <option value="mouth">口の開き</option>
             <option value="blink">まばたき</option>
+            <option value="mouth">口の開き</option>
           </select>
         </div>
       )}
@@ -389,12 +389,14 @@ function MeasureTap({
         )}
       </button>
 
-      <p className="mt-3 text-xs text-slate-400">
-        画面タップ / 画面クリック / スペース / Enter で反応。
-        {single
-          ? ' 合図前に押すと「早すぎ！」になり、仕切り直します。'
-          : ' 合図前に押すと「早すぎ！」になり、同じ試行を仕切り直します。'}
-      </p>
+      {inputMode === 'tap' && (
+        <p className="mt-3 text-xs text-slate-400">
+          画面タップ / 画面クリック / スペース / Enter で反応。
+          {single
+            ? ' 合図前に押すと「早すぎ！」になり、仕切り直します。'
+            : ' 合図前に押すと「早すぎ！」になり、同じ試行を仕切り直します。'}
+        </p>
+      )}
     </div>
   );
 }

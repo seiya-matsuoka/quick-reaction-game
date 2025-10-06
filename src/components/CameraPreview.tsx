@@ -199,17 +199,11 @@ export default function CameraPreview({
   }, [cam.playing]);
 
   const label = mode === 'mouth' ? 'mouth' : 'blink';
-  const calText =
-    mode === 'mouth' ? 'キャリブ中…（口を閉じて静止）' : 'キャリブ中…（目を開けたまま静止）';
 
   return (
     <div className={hidden ? 'hidden' : ''}>
       <div className="mb-2 flex items-center justify-between">
-        <div className="whitespace-nowrap text-sm text-slate-300">
-          カメラプレビュー
-          {ready ? '' : '（初期化中…）'}
-          {calibrating ? `（${calText.replace('キャリブ中…', 'キャリブ中')}）` : ''}
-        </div>
+        <div className="whitespace-nowrap text-sm text-slate-300">カメラプレビュー</div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1 text-xs text-slate-300">
             <input type="checkbox" checked={mirrored} onChange={() => setMirrored((v) => !v)} />

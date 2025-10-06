@@ -271,7 +271,13 @@ function MeasureTap({
           return { color: 'bg-slate-700', label: 'モデル準備中…（キャリブ待機）' };
         if (pendingCalibrate && camReady)
           return { color: 'bg-slate-700', label: 'キャリブ開始中…' };
-        return { color: 'bg-emerald-600', label: 'タップでカメラの設定' };
+        return {
+          color: 'bg-emerald-600',
+          label:
+            cameraKind === 'mouth'
+              ? 'タップでカメラの設定（口を閉じて静止）'
+              : 'タップでカメラの設定（目を開けたまま静止）',
+        };
       }
       if (!camReady) return { color: 'bg-slate-700', label: 'モデル準備中…' };
       return { color: 'bg-emerald-600', label: 'タップで開始' };

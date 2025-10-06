@@ -28,6 +28,10 @@ export default function CameraPreview({
   const [threshold, setThreshold] = useState<number>(thresholdDefault);
   const [calibrating, setCalibrating] = useState(false);
 
+  // セッション内（リロード中は持続しない）での閾値ストア
+  const getThresholdStore = () =>
+    ((globalThis as any).CAMERA_THRESHOLD_BY_MODE ??= {} as Record<'mouth' | 'blink', number>);
+
   const cal = useRef<{ active: boolean; values: number[]; timer: number | null }>({
     active: false,
     values: [],
@@ -97,6 +101,26 @@ export default function CameraPreview({
     if (!shouldRun && running) stop();
   }, [cam.playing, ready, running, start, stop, calibrating, armed]);
 
+  // モード変更時はしきい値とバッファを初期化（再キャリブ前提に戻す）
+  useEffect(() => {
+    const store = getThresholdStore();
+    const stored = typeof store[mode] === 'number' ? store[mode] : undefined;
+
+    setThreshold(stored ?? thresholdDefault); // ← 保存優先、なければ 0.5
+
+    setCalibrating(false);
+    latestScoreRef.current = null;
+
+    const calRef = cal.current;
+    if (calRef.timer) {
+      clearTimeout(calRef.timer);
+      calRef.timer = null;
+    }
+    calRef.active = false;
+    calRef.values = [];
+    lastCalNonceRef.current = undefined;
+  }, [mode, thresholdDefault]);
+
   useEffect(() => {
     if (!cam.playing) return;
     let raf: number | null = null;
@@ -139,9 +163,12 @@ export default function CameraPreview({
     const done = () => {
       const vals = calRef.values;
       const base = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0.1;
-      // blink/mouth 共通のしきい値決定
       const newTh = Math.max(mode === 'blink' ? 0.4 : 0.45, base + 0.25);
       setThreshold(Number(newTh.toFixed(2)));
+
+      // モード別に保存（セッション内のみ有効）
+      const store = getThresholdStore();
+      store[mode] = Number(newTh.toFixed(2));
 
       calRef.active = false;
       calRef.values = [];

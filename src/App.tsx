@@ -163,9 +163,9 @@ function MeasureTap({
   const [camCalibrating, setCamCalibrating] = useState(false);
   const [camPlaying, setCamPlaying] = useState(false);
 
-  // 同一セッション（リロードまで）で一度だけキャリブ
-  const initialCalibrated = (globalThis as any).CAMERA_CALIBRATED_SESSION ?? false;
-  const [cameraCalibrated, setCameraCalibrated] = useState<boolean>(initialCalibrated);
+  const [cameraCalibrated, setCameraCalibrated] = useState<boolean>(
+    Boolean((globalThis as any).CAMERA_CALIBRATED_MODE?.[cameraKind])
+  );
 
   // 「カメラの設定」トリガ（CameraPreview へ渡す）
   const [calibrateNonce, setCalibrateNonce] = useState(0);
@@ -173,6 +173,13 @@ function MeasureTap({
 
   // 受付済み（ready待ち含む）を可視化するフラグ
   const [pendingCalibrate, setPendingCalibrate] = useState(false);
+
+  useEffect(() => {
+    const map = ((globalThis as any).CAMERA_CALIBRATED_MODE ??= {});
+    const isCalibratedForMode = Boolean(map[cameraKind]);
+    setCameraCalibrated(isCalibratedForMode);
+    setPendingCalibrate(false); // 「キャリブ待機」表示等をリセット
+  }, [cameraKind]);
 
   // キー操作（準備前でもキャリブは「予約」だけ通す → 実行は CameraPreview 側で ready 待ち）
   useEffect(() => {
@@ -318,7 +325,8 @@ function MeasureTap({
             calibrateNonce={calibrateNonce}
             onCalibrated={() => {
               setCameraCalibrated(true);
-              (globalThis as any).CAMERA_CALIBRATED_SESSION = true;
+              const map = ((globalThis as any).CAMERA_CALIBRATED_MODE ??= {});
+              map[cameraKind] = true; // モード別にキャリブ済み記録
               setPendingCalibrate(false);
             }}
             onStatusChange={({ ready, calibrating, playing }) => {

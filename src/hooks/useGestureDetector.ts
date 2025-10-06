@@ -2,23 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { getMediapipeConfig } from '@/config/mediapipe';
 
-type Mode = 'mouth' | 'blink' | 'nod';
+type Mode = 'mouth' | 'blink';
 
 export type GestureOptions = {
   mode?: Mode;
-  /** 反応しきい値（0〜1） */
   threshold?: number;
-  /** 連続フレーム数（この回数以上しきい値超過で確定） */
   consecutive?: number;
-  /** 確定後のデッドタイム（ms） */
   deadTimeMs?: number;
-  /** 何フレームに1回推論するか（負荷軽減）。最小1（=毎フレーム） */
   sampleEveryN?: number;
-  /** 推論の最大FPS（既定30）。sampleEveryN と併用で更に軽量化 */
   maxFps?: number;
-  /** 確定したら呼ばれる */
   onGesture?: (kind: Mode, ts: number) => void;
-  /** デバッグ/可視化用にスコアを通知（例: { mouth: 0.53 }） */
   onScores?: (scores: Record<string, number>, ts: number) => void;
 };
 
@@ -37,22 +30,16 @@ function pickScore(scores: Record<string, number>, names: string[]): number | un
   return undefined;
 }
 
-/**
- * MediaPipe FaceLandmarker を使ってカメラ映像を推論し、
- * 指定ジェスチャを検出するフック。
- * モデル/WASMは config(環境変数) から取得。
- */
 export function useGestureDetector(
   videoRef: React.RefObject<HTMLVideoElement>,
   opts: GestureOptions = {}
 ): DetectorState {
   const mode = opts.mode ?? 'mouth';
-  const threshold = opts.threshold ?? 0.6;
+  const threshold = opts.threshold ?? (mode === 'blink' ? 0.55 : 0.6);
   const consecutive = opts.consecutive ?? 2;
   const deadTimeMs = opts.deadTimeMs ?? 300;
-  const sampleEveryN = Math.max(1, opts.sampleEveryN ?? 1);
-  const maxFps = Math.max(5, opts.maxFps ?? 30); // 下限5fps
-  const frameBudgetMs = 1000 / maxFps;
+  const sampleEveryN = Math.max(1, opts.sampleEveryN ?? 2);
+  const maxFps = Math.max(5, opts.maxFps ?? 24);
 
   const [ready, setReady] = useState(false);
   const [running, setRunning] = useState(false);
@@ -63,11 +50,11 @@ export function useGestureDetector(
   const consecRef = useRef(0);
   const lockedUntilRef = useRef(0);
   const lastInferRef = useRef(0);
+  const frameBudgetMs = 1000 / maxFps;
 
-  // ----- 初期化（WASM と モデルをロード） -----
+  // 初期化（WASM & モデルロード）
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       try {
         const { wasmBase, modelUrls } = getMediapipeConfig();
@@ -75,7 +62,6 @@ export function useGestureDetector(
 
         let lm: FaceLandmarker | null = null;
         let lastErr: unknown = null;
-
         for (const url of modelUrls) {
           try {
             lm = await FaceLandmarker.createFromOptions(fileset, {
@@ -85,50 +71,44 @@ export function useGestureDetector(
               outputFaceBlendshapes: true,
               outputFacialTransformationMatrixes: false,
             });
-            break; // 成功
-          } catch (err) {
-            lastErr = err;
+            break;
+          } catch (e) {
+            lastErr = e;
           }
         }
         if (!lm) throw lastErr ?? new Error('Failed to load FaceLandmarker');
 
+        // 作成直後のキャンセル分岐
         if (cancelled) {
           const closable = lm as unknown as { close?: () => void };
-          try {
-            closable.close?.();
-          } catch (_err) {
-            void _err;
-          }
+          closable.close?.();
           return;
         }
         landmarkerRef.current = lm;
         setReady(true);
-      } catch (_err) {
-        console.error('[useGestureDetector] init error:', _err);
+      } catch (e) {
+        console.error('[useGestureDetector] init error:', e);
       }
     })();
 
+    // useEffect の cleanup（アンマウント）
     return () => {
       cancelled = true;
       const lm = landmarkerRef.current;
       landmarkerRef.current = null;
       if (lm) {
         const closable = lm as unknown as { close?: () => void };
-        try {
-          closable.close?.();
-        } catch (_err) {
-          void _err;
-        }
+        closable.close?.();
       }
     };
   }, []);
 
-  // ----- ループ開始/停止 -----
+  // ループ開始/停止
   const start = useCallback(() => {
     if (!ready || running) return;
     setRunning(true);
 
-    const loop = async () => {
+    const loop = () => {
       const video = videoRef.current;
       const lm = landmarkerRef.current;
       if (!video || !lm || video.readyState < 2) {
@@ -136,43 +116,47 @@ export function useGestureDetector(
         return;
       }
 
-      frameCountRef.current++;
-
+      frameCountRef.current += 1;
       const now = performance.now();
-      const frameSlot = now - lastInferRef.current >= frameBudgetMs;
+      const timeOK = now - lastInferRef.current >= frameBudgetMs;
       const sampled = frameCountRef.current % sampleEveryN === 0;
 
-      if (frameSlot && sampled) {
+      if (timeOK && sampled) {
         lastInferRef.current = now;
 
         try {
           const res = lm.detectForVideo(video, now);
-          const bs = res.faceBlendshapes?.[0]?.categories ?? [];
+          const cats = res.faceBlendshapes?.[0]?.categories ?? [];
           const scores: Record<string, number> = {};
-          for (const c of bs) scores[c.categoryName] = c.score;
+          for (const c of cats) scores[c.categoryName] = c.score;
 
-          // 口開き検出
+          // スコア計算
+          let s = 0;
           if (mode === 'mouth') {
-            const sMouth = pickScore(scores, ['mouthOpen', 'jawOpen', 'lipsParted']) ?? 0;
+            s = pickScore(scores, ['mouthOpen', 'jawOpen', 'lipsParted']) ?? 0;
+            opts.onScores?.({ mouth: s }, now);
+          } else {
+            const l = pickScore(scores, ['eyeBlinkLeft', 'eyeBlinkL']) ?? 0;
+            const r = pickScore(scores, ['eyeBlinkRight', 'eyeBlinkR']) ?? 0;
+            s = Math.max(l, r);
+            opts.onScores?.({ blink: s }, now);
+          }
 
-            // デバッグ/可視化
-            opts.onScores?.({ mouth: sMouth }, now);
-
-            if (now >= lockedUntilRef.current) {
-              if (sMouth >= threshold) {
-                consecRef.current += 1;
-                if (consecRef.current >= consecutive) {
-                  consecRef.current = 0;
-                  lockedUntilRef.current = now + deadTimeMs;
-                  opts.onGesture?.('mouth', now);
-                }
-              } else {
+          // 確定判定
+          if (now >= lockedUntilRef.current) {
+            if (s >= threshold) {
+              consecRef.current += 1;
+              if (consecRef.current >= consecutive) {
                 consecRef.current = 0;
+                lockedUntilRef.current = now + deadTimeMs;
+                opts.onGesture?.(mode, now);
               }
+            } else {
+              consecRef.current = 0;
             }
           }
-        } catch (_err) {
-          void _err;
+        } catch {
+          // 停止直後などは握り潰し
         }
       }
 
@@ -201,7 +185,6 @@ export function useGestureDetector(
     lastInferRef.current = 0;
   }, []);
 
-  // アンマウント時は必ず停止
   useEffect(() => () => stop(), [stop]);
 
   return { ready, running, start, stop };

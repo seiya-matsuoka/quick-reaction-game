@@ -4,7 +4,7 @@ import { useGestureDetector } from '@/hooks/useGestureDetector';
 
 type Props = {
   hidden?: boolean;
-  mode?: 'mouth' | 'blink' | 'nod';
+  mode?: 'mouth' | 'blink';
   onGestureStop?: () => void;
   thresholdDefault?: number;
   armed?: boolean; // 合図後 true
@@ -24,7 +24,7 @@ export default function CameraPreview({
   onCalibrated,
 }: Props) {
   const [mirrored, setMirrored] = useState(true);
-  const [mouth, setMouth] = useState<number | null>(null);
+  const [score, setScore] = useState<number | null>(null);
   const [threshold, setThreshold] = useState<number>(thresholdDefault);
   const [calibrating, setCalibrating] = useState(false);
 
@@ -40,17 +40,15 @@ export default function CameraPreview({
     onCalibratedRef.current = onCalibrated;
   }, [onCalibrated]);
 
-  // カメラは常時オン（共有ストリームを使い回し）
+  // カメラは常時オン
   const cam = useUserMedia({
     width: 320,
     height: 240,
     facingMode: 'user',
     persistAcrossUnmounts: true,
   });
-
   const playing = cam.playing;
   const startCam = cam.start;
-
   useEffect(() => {
     if (!playing) void startCam();
   }, [playing, startCam]);
@@ -61,7 +59,7 @@ export default function CameraPreview({
   }, [cam.playing]);
 
   // 推論（キャリブ中 or 合図後のみ）
-  const latestMouthRef = useRef<number | null>(null);
+  const latestScoreRef = useRef<number | null>(null);
   const detector = useGestureDetector(cam.videoRef, {
     mode,
     threshold,
@@ -73,9 +71,10 @@ export default function CameraPreview({
       if (kind === mode && armed && !calibrating) onGestureStop?.();
     },
     onScores: (scores) => {
-      if ('mouth' in scores) {
-        const v = scores.mouth;
-        latestMouthRef.current = v;
+      const key = mode === 'mouth' ? 'mouth' : 'blink';
+      if (key in scores) {
+        const v = scores[key]!;
+        latestScoreRef.current = v;
         if (cal.current.active) cal.current.values.push(v);
       }
     },
@@ -105,8 +104,8 @@ export default function CameraPreview({
     const tick = (t: number) => {
       if (t - last >= 150) {
         last = t;
-        const v = latestMouthRef.current;
-        if (v != null) setMouth(v);
+        const v = latestScoreRef.current;
+        if (v != null) setScore(v);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -119,18 +118,13 @@ export default function CameraPreview({
   useEffect(() => {
     const token = calibrateNonce ?? 0;
     if (token <= 0) return;
-
-    // カメラ/モデル準備が未完ならスキップ（App 側が ready 到達で再トリガ）
     if (!playingRef.current || !readyRef.current) return;
-
     if (lastCalNonceRef.current === token) return;
     lastCalNonceRef.current = token;
 
-    // 進行中なら二重起動しない
     const calRef = cal.current;
     if (calRef.active) return;
 
-    // 前回の残りをクリア
     if (calRef.timer) {
       clearTimeout(calRef.timer);
       calRef.timer = null;
@@ -145,7 +139,8 @@ export default function CameraPreview({
     const done = () => {
       const vals = calRef.values;
       const base = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0.1;
-      const newTh = Math.max(0.45, base + 0.25);
+      // blink/mouth 共通のしきい値決定
+      const newTh = Math.max(mode === 'blink' ? 0.4 : 0.45, base + 0.25);
       setThreshold(Number(newTh.toFixed(2)));
 
       calRef.active = false;
@@ -157,7 +152,6 @@ export default function CameraPreview({
 
     calRef.timer = window.setTimeout(done, CAL_MS) as unknown as number;
 
-    // 中断/アンマウント時は必ず終了処理
     return () => {
       if (calRef.timer) {
         clearTimeout(calRef.timer);
@@ -167,12 +161,15 @@ export default function CameraPreview({
       calRef.values = [];
       setCalibrating(false);
     };
-  }, [calibrateNonce]);
+  }, [calibrateNonce, mode]);
 
-  // カメラ停止でキャリブ表示もオフ
   useEffect(() => {
     if (!cam.playing) setCalibrating(false);
   }, [cam.playing]);
+
+  const label = mode === 'mouth' ? 'mouth' : 'blink';
+  const calText =
+    mode === 'mouth' ? 'キャリブ中…（口を閉じて静止）' : 'キャリブ中…（目を開けたまま静止）';
 
   return (
     <div className={hidden ? 'hidden' : ''}>
@@ -180,7 +177,7 @@ export default function CameraPreview({
         <div className="whitespace-nowrap text-sm text-slate-300">
           カメラプレビュー
           {ready ? '' : '（初期化中…）'}
-          {calibrating ? '（キャリブ中）' : ''}
+          {calibrating ? `（${calText.replace('キャリブ中…', 'キャリブ中')}）` : ''}
         </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1 text-xs text-slate-300">
@@ -201,7 +198,7 @@ export default function CameraPreview({
           ].join(' ')}
         />
         <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-slate-900/70 px-2 py-1 text-xs tabular-nums text-slate-200">
-          mouth: {mouth === null ? '—' : mouth.toFixed(2)} / th: {threshold.toFixed(2)}
+          {label}: {score === null ? '—' : score.toFixed(2)} / th: {threshold.toFixed(2)}
         </div>
       </div>
 

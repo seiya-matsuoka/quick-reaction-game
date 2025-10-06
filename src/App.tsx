@@ -5,12 +5,14 @@ import CameraPreview from '@/components/CameraPreview';
 
 type Page = 'home' | 'measure' | 'result';
 type InputMode = 'tap' | 'camera';
+type CameraKind = 'mouth' | 'blink';
 
 export default function App() {
   const [page, setPage] = useState<Page>('home');
   const [lastSummary, setLastSummary] = useState<SessionSummary | null>(null);
   const [totalTrials, setTotalTrials] = useState<number>(1);
   const [inputMode, setInputMode] = useState<InputMode>('tap');
+  const [cameraKind, setCameraKind] = useState<CameraKind>('mouth');
 
   return (
     <div className="min-h-dvh overflow-hidden bg-slate-900 text-slate-100">
@@ -24,6 +26,8 @@ export default function App() {
             setLastSummary(null);
             setPage('measure');
           }}
+          cameraKind={cameraKind}
+          onChangeCameraKind={setCameraKind}
         />
       )}
 
@@ -36,6 +40,7 @@ export default function App() {
             setLastSummary(sum);
             setPage('result');
           }}
+          cameraKind={cameraKind}
         />
       )}
 
@@ -57,12 +62,16 @@ function Home({
   inputMode,
   onChangeInputMode,
   onStart,
+  cameraKind,
+  onChangeCameraKind,
 }: {
   totalTrials: number;
   onChangeTrials: (n: number) => void;
   inputMode: 'tap' | 'camera';
   onChangeInputMode: (m: 'tap' | 'camera') => void;
   onStart: () => void;
+  cameraKind: CameraKind;
+  onChangeCameraKind: (k: CameraKind) => void;
 }) {
   return (
     <div className="mx-auto max-w-sm p-6">
@@ -81,6 +90,21 @@ function Home({
           <option value="camera">カメラ（プレビューのみ）</option>
         </select>
       </div>
+
+      {/* 検知対象（カメラ選択時のみ） */}
+      {inputMode === 'camera' && (
+        <div className="mb-4 rounded-2xl border border-slate-700 p-4">
+          <label className="mb-2 block text-sm text-slate-300">検知対象</label>
+          <select
+            className="w-full rounded-xl bg-slate-800 p-2"
+            value={cameraKind}
+            onChange={(e) => onChangeCameraKind(e.target.value as CameraKind)}
+          >
+            <option value="mouth">口の開き</option>
+            <option value="blink">まばたき</option>
+          </select>
+        </div>
+      )}
 
       {/* プレイ回数 */}
       <div className="mb-5 rounded-2xl border border-slate-700 p-4">
@@ -113,11 +137,13 @@ function MeasureTap({
   inputMode,
   onAbort,
   onFinish,
+  cameraKind,
 }: {
   totalTrials: number;
   inputMode: 'tap' | 'camera';
   onAbort: () => void;
   onFinish: (summary: SessionSummary) => void;
+  cameraKind: 'mouth' | 'blink';
 }) {
   const { stage, trialIndex, remaining, stats, start, react, summary } = useReactionTap({
     totalTrials,
@@ -227,7 +253,13 @@ function MeasureTap({
       if (!camPlaying) return { color: 'bg-slate-700', label: 'カメラ準備中…' };
       if (!cameraCalibrated) {
         if (camCalibrating)
-          return { color: 'bg-slate-700', label: 'キャリブ中…（口を閉じて静止）' };
+          return {
+            color: 'bg-slate-700',
+            label:
+              cameraKind === 'mouth'
+                ? 'キャリブ中…（口を閉じて静止）'
+                : 'キャリブ中…（目を開けたまま静止）',
+          };
         if (pendingCalibrate && !camReady)
           return { color: 'bg-slate-700', label: 'モデル準備中…（キャリブ待機）' };
         if (pendingCalibrate && camReady)
@@ -256,6 +288,7 @@ function MeasureTap({
     camReady,
     pendingCalibrate,
     stage,
+    cameraKind,
   ]);
 
   const single = totalTrials === 1;
@@ -280,12 +313,12 @@ function MeasureTap({
       {inputMode === 'camera' && (
         <div className="mb-4">
           <CameraPreview
-            mode="mouth"
+            mode={cameraKind}
             armed={stage === 'go'}
             calibrateNonce={calibrateNonce}
             onCalibrated={() => {
               setCameraCalibrated(true);
-              (globalThis as any).CAMERA_CALIBRATED_SESSION = true; // セッション内保持（リロードでのみ初期化）
+              (globalThis as any).CAMERA_CALIBRATED_SESSION = true;
               setPendingCalibrate(false);
             }}
             onStatusChange={({ ready, calibrating, playing }) => {

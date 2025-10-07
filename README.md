@@ -1,73 +1,149 @@
-# React + TypeScript + Vite
+# Quick Reaction Game
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+<p>
+  <a href="https://seiya-matsuoka.github.io/quick-reaction-game/"> 
+    <img alt="Demo" src="https://img.shields.io/badge/demo-GitHub%20Pages-2ea44f?logo=github">
+  </a>
+  <a href="https://github.com/seiya-matsuoka/quick-reaction-game/actions/workflows/deploy.yml">
+    <img alt="Deploy" src="https://github.com/seiya-matsuoka/quick-reaction-game/actions/workflows/deploy.yml/badge.svg?branch=main">
+  </a>
+</p>
 
-Currently, two official plugins are available:
+<p>
+  <img alt="React" src="https://img.shields.io/badge/react-19-61DAFB?logo=react">
+  <img alt="TypeScript" src="https://img.shields.io/badge/typescript-5%2B-3178C6?logo=typescript">
+  <img alt="Tailwind v3" src="https://img.shields.io/badge/tailwindcss-3-06B6D4?logo=tailwindcss">
+</p>
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+**まばたき / 口の開き / タップ** で反応速度を計測できるリアクションゲーム。  
+「合図」に素早く反応してタイムを計測します。
 
-## React Compiler
+## デモ
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+公開URL：https://seiya-matsuoka.github.io/quick-reaction-game/
 
-## Expanding the ESLint configuration
+[![Open Demo – GitHub Pages](https://img.shields.io/badge/demo-GitHub%20Pages-2ea44f?logo=github)](https://seiya-matsuoka.github.io/quick-reaction-game/)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## スクリーンショット
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+<table>
+  <tr>
+    <td align="center">
+      <a href="./docs/screenshot_home_blink.png">
+        <img src="./docs/screenshot_home_blink.png" alt="Home blink" width="220">
+      </a><br/><sub>Home（まばたき）</sub>
+    </td>
+    <td align="center">
+      <a href="./docs/screenshot_home_mouth.png">
+        <img src="./docs/screenshot_home_mouth.png" alt="Home mouth" width="220">
+      </a><br/><sub>Home（口の開き）</sub>
+    </td>
+    <td align="center">
+      <a href="./docs/screenshot_praying_camera1.png">
+        <img src="./docs/screenshot_praying_camera1.png" alt="Ready to start" width="220">
+      </a><br/><sub>タップで開始</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="./docs/screenshot_praying_camera2.png">
+        <img src="./docs/screenshot_praying_camera2.png" alt="Waiting" width="220">
+      </a><br/><sub>合図待ち…</sub>
+    </td>
+    <td align="center">
+      <a href="./docs/screenshot_praying_camera3.png">
+        <img src="./docs/screenshot_praying_camera3.png" alt="Go" width="220">
+      </a><br/><sub>今！</sub>
+    </td>
+    <td align="center">
+      <a href="./docs/screenshot_result.png">
+        <img src="./docs/screenshot_result.png" alt="Result" width="220">
+      </a><br/><sub>結果</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="./docs/screenshot_home_tap.png">
+        <img src="./docs/screenshot_home_tap.png" alt="Home tap" width="220">
+      </a><br/><sub>Home（タップ）</sub>
+    </td>
+    <td align="center">
+      <a href="./docs/screenshot_praying_tap3.png">
+        <img src="./docs/screenshot_praying_tap3.png" alt="Waiting tap" width="220">
+      </a><br/><sub>合図待ち…（タップ）</sub>
+    </td>
+    <td align="center">
+      <a href="./docs/screenshot_praying_tap1.png">
+        <img src="./docs/screenshot_praying_tap1.png" alt="Too soon" width="220">
+      </a><br/><sub>早すぎ！</sub>
+    </td>
+  </tr>
+</table>
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## 特徴
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+- **入力モード**：タップ / カメラ
+- **カメラ検知**：まばたき / 口の開き（セッション初回のみ手動キャリブ）
+- **プレイ回数**：1 / 3 / 5 / 10 回 を設定で選択可
+- **ゲーム進行**：ランダムな「合図」を待って反応
+
+## 使い方
+
+1. **入力モード**を選択（既定は「カメラ」 / 検知対象は「まばたき」）。
+2. **はじめる** → ゾーンの「**タップでカメラの設定**」を押して初回キャリブ
+   - まばたき：**目を開けたまま静止**
+   - 口の開き：**口を閉じて静止**
+3. キャリブ完了 → 「**タップで開始**」 → 「**合図待ち…**」
+4. 「**今！**」の合図後に、選んだ方法で反応（タップ or まばたき / 口の開き）
+   - 合図前に反応すると「**早すぎ！**」で仕切り直し（タップのみ）
+
+## セットアップ
+
+```bash
+npm i
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- 本番ビルド：`npm run build`
+- プレビュー：`npm run preview`
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x';
-import reactDom from 'eslint-plugin-react-dom';
+## 画面構成
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+- **メインゾーン**：状態表示（カメラ設定 / 合図待ち / 今！ など）と操作
+- **カメラプレビュー**：ミラー表示のオン/オフ切替可、検出スコアとしきい値
+- **結果表示**：最小/平均/回数などの簡易統計（履歴保存は省略）
+
+## ディレクトリ構成
+
+```bash
+src/
+├─ components/
+│  └─ CameraPreview.tsx     # カメラプレビュー、キャリブ制御
+├─ hooks/
+│  ├─ useUserMedia.ts       # 共有ストリーム / 権限 / 状態
+│  ├─ useGestureDetector.ts # スコア算出・判定
+│  └─ useReactionTap.ts     # 反応テスト進行
+├─ config/
+│  └─ mediapipe.ts          # WASM/モデルURLの取得
+├─ types/
+│  └─ reaction.ts           # 記録ユーティリティ
+├─ App.tsx / main.tsx
+└─ index.css
 ```
+
+## 技術スタック
+
+- **React (Vite)** + **TypeScript**
+- **Tailwind CSS v3**
+- MediaPipe **Tasks Vision / Face Landmarker**
+
+## セキュリティ / プライバシー
+
+- `https`（または `localhost`）でカメラが使用可能です。ブラウザで権限を許可してください。
+
+## デプロイ（GitHub Pages）
+
+- `vite.config.ts` の `base` を リポジトリ名に設定
+- GitHub Actions（`deploy.yml`）が `main` への push で自動デプロイ
+
+  [![Deploy to GitHub Pages](https://github.com/seiya-matsuoka/quick-reaction-game/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/seiya-matsuoka/quick-reaction-game/actions/workflows/deploy.yml)
